@@ -1,78 +1,257 @@
 import React, { useEffect, useState } from 'react';
-import { Image, StyleSheet, View, Text, ScrollView, TextInput } from 'react-native';
-import { TabBarIcon } from '@/components/navigation/TabBarIcon';
-import { Tabs } from 'expo-router';
-import { Colors } from '@/constants/Colors';
-import { useColorScheme } from '@/hooks/useColorScheme';
+import { View, Text, StyleSheet, Image, FlatList, ActivityIndicator, TouchableOpacity, Animated } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import SearchBar from '@/components/SearchBar';
+import CharacterDetails from '@/components/CharactersDetails';
 
-const App = () => {
-  const [characters, setCharacters] = useState([]);
-  const [search, setSearch] = useState('');
+type Character = {
+  id: number;
+  name: string;
+  species: string;
+  image: string;
+  status: string;
+  gender: string;
+  type: string;
+  origin: {
+    name: string;
+    url: string;
+  };
+  location: {
+    name: string;
+    url: string;
+  };
+};
+
+const HomeScreen: React.FC = () => {
+  const [allCharacters, setAllCharacters] = useState<Character[]>([]);
+  const [charcacterSelected, setCharactersSelected] = useState<Character | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [paginaAtual, setPaginaAtual] = useState(1);
+  const [pickSearch, setPickSearch] = useState('');
+  const [hasMore, setHasMore] = useState(true);
+  const [favorites, setFavorites] = useState<{ [key: number]: boolean }>({});
+  const [favoritesLoaded, setFavoritosCarregados] = useState(false);
+  const opacity = useState(new Animated.Value(0))[0];
+  let timeout: NodeJS.Timeout | null = null;
 
   useEffect(() => {
-    // Função para buscar os personagens da API
-    fetch('https://rickandmortyapi.com/api/character', {
-      method: 'GET',
-    })
-      .then((response) => response.json())
-      .then((json) => {
-        // Atualiza o estado com os personagens obtidos
-        setCharacters(json.results);
-      })
-      .catch((error) => {
-        console.error(error);
-      });
+    loadFavorites();
+    return () => {
+      if (timeout) clearTimeout(timeout);
+    };
   }, []);
 
-  // Função para filtrar personagens com base na pesquisa
-  const filteredCharacters = characters.filter((character) =>
-    character.name.toLowerCase().includes(search.toLowerCase())
+  useEffect(() => {
+    if (favoritesLoaded) {
+      carregarPersonagens();
+    }
+  }, [favoritesLoaded]);
+
+  useEffect(() => {
+    if (favoritesLoaded) {
+      salvarFavoritos();
+    }
+  }, [favorites]);
+
+  const carregarPersonagens = async () => {
+    if (loading || !hasMore) return;
+
+    setLoading(true);
+
+    try {
+      const response = await fetch(`https://rickandmortyapi.com/api/character?page=${paginaAtual}`);
+      if (!response.ok) {
+        throw new Error('Error loading data!');
+      }
+      const data = await response.json();
+
+      setAllCharacters((prev) => [...prev, ...data.results]);
+      setHasMore(data.info.next !== null);
+      setPaginaAtual((prev) => prev + 1);
+    } catch (error) {
+      console.error('Request error:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSearch = (termo: string) => {
+    setPickSearch(termo);
+
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+
+    timeout = setTimeout(() => {
+      performSearch(termo);
+    }, 300);
+  };
+
+  const performSearch = async (termo: string) => {
+    setLoading(true);
+
+    try {
+      const response = await fetch(`https://rickandmortyapi.com/api/character/?name=${termo}`);
+      if (!response.ok) {
+        throw new Error('Error loading data!');
+      }
+      const data = await response.json();
+
+      if (data.error) {
+        setAllCharacters([]);
+      } else {
+        setAllCharacters(data.results);
+      }
+    } catch (error) {
+      setAllCharacters([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const resetSearch = () => {
+    setPickSearch('');
+    setPaginaAtual(1); 
+    setAllCharacters([]);
+    setHasMore(true);
+    carregarPersonagens();
+  };
+
+  const showCharacterDetails = (character: Character) => {
+    setCharactersSelected(character);
+    Animated.timing(opacity, {
+      toValue: 1,
+      duration: 300,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  const hideCharacterDetails = () => {
+    Animated.timing(opacity, {
+      toValue: 0,
+      duration: 300,
+      useNativeDriver: true,
+    }).start(() => {
+      setCharactersSelected(null);
+    });
+  };
+
+  const toggleFavorito = (id: number) => {
+    const novosFavorites = { ...favorites };
+    novosFavorites[id] = !novosFavorites[id];
+    setFavorites(novosFavorites);
+  };
+
+  const salvarFavoritos = async () => {
+    try {
+      await AsyncStorage.setItem('favorites', JSON.stringify(favorites));
+    } catch (error) {
+      console.error('Error saving favorites:', error);
+    }
+  };
+
+  const loadFavorites = async () => {
+    try {
+      const favoritosSalvos = await AsyncStorage.getItem('favorites');
+      if (favoritosSalvos) {
+        setFavorites(JSON.parse(favoritosSalvos));
+      }
+      setFavoritosCarregados(true);
+    } catch (error) {
+      console.error('Error loading favorites:', error);
+    }
+  };
+
+  const renderItem = ({ item }: { item: Character }) => (
+    <TouchableOpacity onPress={() => showCharacterDetails(item)}>
+      <View style={styles.card}>
+        <Image source={{ uri: item.image }} style={styles.imagem} resizeMode="cover" />
+        <View style={styles.infoContainer}>
+          <View style={styles.textContainer}>
+            <Text style={styles.nome}>{item.name}</Text>
+            <Text style={styles.info}>{item.species}</Text>
+          </View>
+          <TouchableOpacity onPress={() => toggleFavorito(item.id)} style={styles.heartIcon}>
+            <Ionicons
+              name={favorites[item.id] ? 'heart' : 'heart-outline'}
+              size={24}
+              color={favorites[item.id] ? 'red' : 'black'}
+            />
+          </TouchableOpacity>
+        </View>
+      </View>
+    </TouchableOpacity>
   );
 
+  const renderFooter = () => {
+    return (
+      loading && (
+        <View style={styles.loader}>
+          <ActivityIndicator size="large" color="#0000ff" />
+        </View>
+      )
+    );
+  };
+
+  const renderEmpty = () => {
+    return (
+      <View style={styles.emptyContainer}>
+        <Text style={styles.emptyText}>Ops! Não possui nenhum personagem com este nome.</Text>
+      </View>
+    );
+  };
+
   return (
-    <ScrollView contentContainerStyle={styles.container}>
+    <View style={styles.container}>
       <View style={styles.topbar}>
         <Image
           source={require('@/assets/images/856443c541116a3dafefe5f5b9ab1377.png')}
           style={{ width: 46, height: 49 }}
         />
       </View>
-
-      <View style={styles.logo}>
-        <Image
-          source={require('@/assets/images/92dc1ac359bbffe31ce3cb3223f68e22.png')}
-          style={{ width: 312, height: 104 }}
-        />
+      <View style={styles.searchBarContainer}>
+        <SearchBar onSearch={handleSearch} onClear={resetSearch} />
       </View>
 
-      <View style={styles.buscar}>
-        <TextInput
-          placeholder='Filtre seu personagem'
-          value={search}
-          onChangeText={setSearch}
-          style={styles.textInput}
+      {pickSearch === '' ? (
+        <FlatList
+          data={allCharacters}
+          renderItem={renderItem}
+          keyExtractor={(item) => `${item.id}`}
+          onEndReached={carregarPersonagens}
+          onEndReachedThreshold={0.1}
+          ListFooterComponent={renderFooter}
+          contentContainerStyle={styles.contentContainer}
         />
-      </View>
+      ) : (
+        <FlatList
+          data={allCharacters}
+          renderItem={renderItem}
+          keyExtractor={(item) => `${item.id}`}
+          ListEmptyComponent={renderEmpty}
+          contentContainerStyle={styles.contentContainer}
+        />
+      )}
 
-      {filteredCharacters.map((character) => (
-        <View key={character.id} style={styles.card}>
-          <Image source={{ uri: character.image }} style={styles.image} />
-          <Text style={styles.name}>{character.name}</Text>
-          <Text>{character.species}</Text>
-          <Text>{character.status}</Text>
-          
-        </View>
-      ))}
-    </ScrollView>
+      {charcacterSelected && (
+        <Animated.View style={[styles.detailContainer, { opacity }]}>
+          <CharacterDetails character={charcacterSelected} onClose={hideCharacterDetails} />
+        </Animated.View>
+      )}
+    </View>
   );
 };
 
-// Estilos
+export default HomeScreen;
+
 const styles = StyleSheet.create({
   container: {
-    padding: 20,
+    flex: 1,
+    backgroundColor: '#fff',
     alignItems: 'center',
   },
+
   topbar: {
     height: 60,
     elevation: 10,
@@ -84,23 +263,21 @@ const styles = StyleSheet.create({
     shadowRadius: 2,
     shadowColor: '#00000024',
   },
-  logo: {
-    flexDirection: 'row',
+
+  tituloContainer: {
     justifyContent: 'center',
-    marginTop: 50,
-  },
-  buscar: {
-    height: 40,
-    borderColor: 'gray',
-    borderWidth: 1,
-    paddingLeft: 8,
-    width: '100%',
+    alignItems: 'center',
     marginBottom: 20,
-    marginTop: 50,
   },
-  textInput: {
-    height: '100%',
-    fontSize: 16,
+  tituloImage: {
+    marginTop: 30,
+    width: 312,
+    height: 104,
+  },
+  searchBarContainer: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 20,
   },
   card: {
     marginBottom: 20,
@@ -116,17 +293,50 @@ const styles = StyleSheet.create({
     shadowRadius: 5,
     width: '90%',
   },
-  image: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    marginBottom: 10,
+  imagem: {
+    width: 312,
+    height: 288,
   },
-  name: {
+  infoContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 15,
+  },
+  textContainer: {
+    flex: 1,
+  },
+  nome: {
+    fontSize: 20,
     fontWeight: 'bold',
-    fontSize: 18,
-    marginBottom: 5,
+    marginBottom: 4,
+  },
+  info: {
+    fontSize: 14,
+  },
+  emptyContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyText: {
+    fontSize: 16,
+    color: '#888',
+  },
+  heartIcon: {
+    marginLeft: 100,
+  },
+  loader: {
+    marginTop: 10,
+    alignItems: 'center',
+  },
+  contentContainer: {
+    paddingHorizontal: 10,
+  },
+  detailContainer: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(255, 255, 255, 1)',
+    zIndex: 100,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });
-
-export default App;
