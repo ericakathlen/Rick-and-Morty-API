@@ -5,6 +5,7 @@ import { TabBarIcon } from '@/components/navigation/TabBarIcon';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 
+
 export default function TabLayout() {
   const colorScheme = useColorScheme();
 
@@ -26,12 +27,13 @@ export default function TabLayout() {
       <Tabs.Screen
         name="explore"
         options={{
-          title: 'Explore',
+          title: 'Like',
           tabBarIcon: ({ color, focused }) => (
-            <TabBarIcon name={focused ? 'code-slash' : 'code-slash-outline'} color={color} />
+            <TabBarIcon name={focused ? 'heart' : 'heart'} color={color} />
           ),
         }}
       />
+      
     </Tabs>
   );
 }
